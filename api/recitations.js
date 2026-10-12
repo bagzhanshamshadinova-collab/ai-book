@@ -38,10 +38,20 @@ export default async function handler(req,res){
      return reply(res,200,{ok:true,name:existing[0].display_name});
     }
    }
+   // Restore the same student after a browser cookie has expired or disappeared.
+   // The random 256-bit browser key is a bearer credential, never the student's name.
+   const deviceToken=String(v.deviceToken||'');
+   if(!/^[a-f0-9]{64}$/.test(deviceToken))return reply(res,400,{error:'Құрылғы сеансы дұрыс емес. Бетті жаңартыңыз.'});
+   const match=await db(`ai_students_secure?access_hash=eq.${hashCode(deviceToken)}&select=id,display_name`);
+   if(match.length){
+    if(match[0].display_name.trim().toLocaleLowerCase('kk')!==name.toLocaleLowerCase('kk'))return reply(res,409,{error:'Бұл құрылғы басқа оқушыға тіркелген.'});
+    const id=match[0].id,exp=String(Date.now()+30*24*3600*1000);
+    cookie(res,'ai_pupil',`${id}.${exp}.${sig(`${id}.${exp}`)}`,2592000);
+    return reply(res,200,{ok:true,name:match[0].display_name});
+   }
    // A browser-bound random session: students never have to type or share a code.
    // Name is self-declared, not verified identity. Do not expose recordings to peers.
-   const token=crypto.randomBytes(32).toString('hex');
-   const inserted=await db('ai_students_secure','POST',{display_name:name,access_hash:hashCode(token)});
+   const inserted=await db('ai_students_secure','POST',{display_name:name,access_hash:hashCode(deviceToken)});
    const id=inserted[0]?.id;if(!id)throw Error('Оқушы тіркелмеді');
    const exp=String(Date.now()+30*24*3600*1000);
    cookie(res,'ai_pupil',`${id}.${exp}.${sig(`${id}.${exp}`)}`,2592000);
