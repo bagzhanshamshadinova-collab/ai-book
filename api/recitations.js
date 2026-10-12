@@ -55,6 +55,13 @@ export default async function handler(req,res){
    await db('ai_students_secure','POST',{display_name:name,access_hash:hashCode(code)});
    return reply(res,200,{ok:true,name,code});
   }
+  if(action==='teacher_progress'){
+   if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде қайта кіріңіз.'});
+   const students=await db('ai_students_secure?select=id,display_name,created_at&order=created_at.asc');
+   const quiz=await db('ai_student_quiz_results?select=student_id,month_id,score');
+   const recordings=await db('ai_recitations?select=student_id,month_id,week,status');
+   return reply(res,200,{students,quiz,recordings});
+  }
   if(action==='teacher_roster'){
    if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде қайта кіріңіз.'});
    const students=await db('ai_students_secure?select=id,display_name,created_at&order=created_at.asc');
@@ -94,6 +101,23 @@ export default async function handler(req,res){
   const rows=await db(`ai_students_secure?id=eq.${id}&select=id,display_name`);if(!rows.length)return reply(res,401,{error:'Оқушы аккаунты табылмады'});
   if(typeof v.name==='string'&&rows[0].display_name.trim().toLocaleLowerCase('kk')!==v.name.trim().toLocaleLowerCase('kk'))return reply(res,403,{error:'Бұл құрылғы басқа оқушыға тіркелген'});
   const m=Number(v.month),w=Number(v.week);if(!validPosition(m,w))return reply(res,400,{error:'Ай немесе апта қате'});
+  if(action==='student_progress'){
+   const quizzes=await db(`ai_student_quiz_results?student_id=eq.${id}&select=month_id,score`);
+   const recitations=await db(`ai_recitations?student_id=eq.${id}&select=month_id,week,status`);
+   return reply(res,200,{quizzes,recitations});
+  }
+  if(action==='student_quiz_submit'){
+   const answers=v.answers;
+   if(!Array.isArray(answers)||answers.length!==5||answers.some(x=>!Number.isInteger(x)||x<0||x>2))return reply(res,400,{error:'Тест жауаптары толық емес.'});
+   const existing=await db(`ai_student_quiz_results?student_id=eq.${id}&month_id=eq.${m}&select=score`);
+   if(existing.length)return reply(res,200,{ok:true,score:existing[0].score});
+   const book=await db(`ai_books?id=eq.${m}&select=quiz`);
+   const questions=book[0]?.quiz;
+   if(!Array.isArray(questions)||questions.length!==5)return reply(res,400,{error:'Кітап тесті дайын емес.'});
+   const score=questions.reduce((n,q,i)=>n+(Number(q.right)===answers[i]?1:0),0);
+   await db('ai_student_quiz_results','POST',{student_id:id,month_id:m,score});
+   return reply(res,200,{ok:true,score});
+  }
   if(action==='student_status'){
    const items=await db(`ai_recitations?student_id=eq.${id}&select=month_id,week,status,media_type,created_at`);
    return reply(res,200,{name:rows[0].display_name,items});
