@@ -75,6 +75,7 @@ function renderExtraMedia(b,type){
 }
 const MONTHS=['Қыркүйек','Қазан','Қараша','Желтоқсан','Қаңтар','Ақпан','Наурыз','Сәуір','Мамыр','Маусым','Шілде','Тамыз'];
 const COLORS=['#ffbfd9','#c5baff','#a9e8e1','#ffe4a6','#b4dcff','#ffcbb5','#c9f4b4','#e4c3ff','#ffcfb6','#a9e5ff','#f5d5e9','#ffe4a3'];
+const MONTH_THEMES=[['#e8f4ff','#f8eaff'],['#e9fff3','#fff8dd'],['#fff5dc','#ecffe8'],['#fff0f5','#f1eaff'],['#eef3ff','#e9faff'],['#eefaff','#f7ecff'],['#fff0f4','#fffce3'],['#effffa','#f3f0ff'],['#fff6e5','#eafaff'],['#eaf5ff','#f0ffe8'],['#f5ffe8','#eafffa'],['#fff9dc','#effcf5']];
 const blankQuiz=()=>Array.from({length:5},()=>({q:'',a:['','',''],right:0}));
 const SEPTEMBER_QUIZ=[
 {q:'«Өлеңдері» жинағындағы ақын кім?',a:['Абай Құнанбаев','Ыбырай Алтынсарин','Ахмет Байтұрсынұлы'],right:0},
@@ -194,7 +195,7 @@ function openTeacherFolder(i){
  $('teacherFolderHead').innerHTML=`<img src="${esc(coverUrl(i))}" alt="${esc(b.title)} мұқабасы"><div><span class="tag">${esc(b.month)} • ${i+1}-кітап</span><h2 style="margin:9px 0">${esc(b.title)}</h2><p class="muted">${esc(b.author)}</p></div>`;
  let teacherMedia=$('teacherEmbeddedMaterials');
  if(!teacherMedia){teacherMedia=document.createElement('section');teacherMedia.id='teacherEmbeddedMaterials';teacherMedia.className='panel';$('teacherFolderHead').insertAdjacentElement('afterend',teacherMedia)}
- teacherMedia.innerHTML=`<h3>📚 Кітап материалдарын осы жерден көру</h3><p class="muted smalltext">PDF, аудио, видео және қосымша сілтемелер. Мұғалім де оқушы сияқты осы бетте қарайды.</p><div class="embedded-grid"><div class="embedded-section"><h3>📕 PDF</h3>${media(b,'pdf',i)}${renderExtraMedia(b,'pdf')}</div><div class="embedded-section"><h3>🎧 Аудио</h3>${media(b,'audio',i)}${renderExtraMedia(b,'audio')}</div><div class="embedded-section"><h3>🎬 Видео</h3>${media(b,'video',i)}${renderExtraMedia(b,'video')}</div><div class="embedded-section"><h3>🔗 Сілтемелер</h3>${renderExtraMedia(b,'link')||'<p class="muted">Сілтеме жоқ</p>'}</div></div>`;
+ teacherMedia.innerHTML=`<h3>📚 Кітап материалдары</h3><p class="muted smalltext">Материалдарды осы беттен қарай аласыз.</p><div class="embedded-grid"><div class="embedded-section"><h3>📕 PDF</h3>${media(b,'pdf',i)}${renderExtraMedia(b,'pdf')}</div><div class="embedded-section"><h3>🎬 Видео және аудио</h3>${b.video?media(b,'video',i):''}${renderExtraMedia(b,'video')}${b.audio?media(b,'audio',i):''}${renderExtraMedia(b,'audio')}${renderExtraMedia(b,'link')}</div></div>`;
 
  $('folderApprovals').innerHTML='';const pending=Object.values(data.students).flatMap(st=>Object.keys(st.pending||{}).filter(id=>id.startsWith(i+'-')&&st.pending[id]&&!st.poems[id]).map(id=>({name:st.name,key:norm(st.name),id,week:Number(id.split('-')[1])+1})));
  $('folderApprovals').innerHTML=pending.length?pending.map(it=>`<div class="primaryrow week"><div><strong>${esc(it.name)}</strong><p class="smalltext muted">${it.week}-апта • жаттау тексерілуде</p></div><div class="inline"><button type="button" class="btn small" data-folder-award="${esc(it.key)}|${it.id}">⭐ Жұлдыз беру</button><button type="button" class="btn small alt" data-folder-reject="${esc(it.key)}|${it.id}">Қайтару</button></div></div>`).join(''):'<p class="folder-approvals-empty muted">Бұл кітапқа тексеруді күтіп тұрған жаттау жоқ.</p>';
