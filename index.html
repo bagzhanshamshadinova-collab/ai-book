@@ -186,6 +186,17 @@ async function delMedia(key){const db=await dbReady();return new Promise((resolv
 async function hydrateMedia(i){for(const type of ['pdf','audio','video']){const key=`${i}-${type}`;const old=mediaUrls.get(key);if(old){URL.revokeObjectURL(old);mediaUrls.delete(key)}try{const file=await getMedia(key);if(file&&!data.books[i][type])mediaUrls.set(key,URL.createObjectURL(file))}catch(e){console.warn('Медиа ашылмады',e)}}if(monthIndex===i&&user&&$('bookDetail')&&!$('bookDetail').classList.contains('hidden')){const b=data.books[i];for(const type of ['pdf','audio','video']){const slot=$('media-'+type);if(slot)slot.innerHTML=media(b,type,i)+renderExtraMedia(b,type)}}}
 const norm=s=>s.replace(/\s+/g,' ').trim().toLocaleLowerCase('kk');let quizAnswers=[];let teacherRosterLoaded=false;let role='student',user=null,monthIndex=null,quizStep=0,quizCorrect=0,quizLocked=false,recorder=null,recUrl=null;
 function studentRecord(name){let key=norm(name);if(!data.students[key])data.students[key]={name:name.trim().replace(/\s+/g,' '),poems:{},quiz:{},pending:{}};return data.students[key]}
+function studentDeviceToken(name){
+ const k='ai_book_student_device_v2_'+norm(name);
+ let token=localStorage.getItem(k);
+ if(!/^[a-f0-9]{64}$/.test(token||'')){
+  const bytes=new Uint8Array(32);crypto.getRandomValues(bytes);
+  token=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+  localStorage.setItem(k,token);
+ }
+ return token;
+}
+async function registerCurrentStudent(name){return recitationApi('student_register',{name,deviceToken:studentDeviceToken(name)})}
 async function syncStudentProgress(){
  const current=data.students[user];if(!current)return;
  const result=await recitationApi('student_progress',{month:1,week:1,name:current.name});
@@ -209,7 +220,7 @@ function show(view){['login','studentView','teacherView'].forEach(x=>$(x).classL
 document.querySelectorAll('[data-role]').forEach(b=>b.addEventListener('click',()=>{role=b.dataset.role;document.querySelectorAll('[data-role]').forEach(e=>e.classList.toggle('active',e===b));$('studentLogin').classList.toggle('hidden',role!=='student');$('teacherLogin').classList.toggle('hidden',role!=='teacher');$('studentName').required=role==='student';$('teacherPin').required=role==='teacher';$('pinHint').textContent='4 таңбалы кодыңызды енгізіңіз.';$('loginError').textContent=''}));
 $('pinHint').textContent='4 таңбалы кодыңызды енгізіңіз.';
 
-$('loginForm').addEventListener('submit',async e=>{e.preventDefault();$('loginError').textContent='';if(role==='student'){const n=$('studentName').value.trim();if(n.replace(/\s/g,'').length<3){$('loginError').textContent='Аты-жөніңді толық жаз.';return}user=norm(n);studentRecord(n);save();$('loginError').textContent='⏳ Нәтижелер жүктелуде...';try{await recitationApi('student_register',{name:n});await syncBooks();await syncStudentProgress()}catch(err){$('loginError').textContent='Кіру қатесі: '+err.message;return}$('loginError').textContent='';renderStudent();show('studentView')}else{const p=$('teacherPin').value;if(!/^\d{4}$/.test(p))return;try{await teacherApi('login',{pin:p});teacherVerified=true;await syncBooks();await syncTeacherProgress();renderTeacher();show('teacherView')}catch(e){$('loginError').textContent=e.message}}});
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();$('loginError').textContent='';if(role==='student'){const n=$('studentName').value.trim();if(n.replace(/\s/g,'').length<3){$('loginError').textContent='Аты-жөніңді толық жаз.';return}user=norm(n);studentRecord(n);save();$('loginError').textContent='⏳ Нәтижелер жүктелуде...';try{await registerCurrentStudent(n);await syncBooks();await syncStudentProgress()}catch(err){$('loginError').textContent='Кіру қатесі: '+err.message;return}$('loginError').textContent='';renderStudent();show('studentView')}else{const p=$('teacherPin').value;if(!/^\d{4}$/.test(p))return;try{await teacherApi('login',{pin:p});teacherVerified=true;await syncBooks();await syncTeacherProgress();renderTeacher();show('teacherView')}catch(e){$('loginError').textContent=e.message}}});
 $('logout').onclick=()=>{if(teacherVerified)teacherApi('logout').catch(()=>{});teacherVerified=false;stopWeekRecording(true);clearCapturedRecitations();user=null;monthIndex=null;$('teacherPin').value='';show('login')};
 function renderStudent(){const s=data.students[user];$('hello').textContent='Сәлем, '+s.name+'! 👋';$('totalStars').textContent=stars(s).total+' ⭐';updateCertificate();$('studentGrid').innerHTML=data.books.map((b,i)=>{const hasPdf=!!b.pdf||(b.mediaItems||[]).some(x=>x.type==='pdf');const hasAudio=!!b.audio||(b.mediaItems||[]).some(x=>x.type==='audio');const hasVideo=!!b.video||(b.mediaItems||[]).some(x=>x.type==='video');return `<article class="book" style="--cover:${COLORS[i]}"><div class="cover"><span class="monthpill">${esc(b.month)}</span>${b.cover?`<img class="coverimg" src="${esc(coverUrl(i))}" alt="${esc(b.title)} мұқабасы">`:''}<span class="bookemoji">📖</span></div><div class="bookbody"><h3>${esc(b.title)}</h3><p class="muted smalltext">${esc(b.author)}</p><div class="mini-actions"><span class="${hasPdf?'on':''}">PDF</span><span class="${hasAudio?'on':''}">Аудио</span><span class="${hasVideo?'on':''}">Видео</span><span class="quiz on">Квиз</span><span class="on">Жаттау</span></div><button class="btn small" data-open="${i}">Кітапты ашу →</button></div></article>`}).join('');$('studentBooks').classList.remove('hidden');$('bookDetail').classList.add('hidden');$('studentGrid').querySelectorAll('[data-open]').forEach(b=>b.onclick=async()=>{try{await openBook(+b.dataset.open)}catch(e){console.error(e);alert('Кітапты ашуда қате: '+e.message)}})}
 function validLink(u){try{const x=new URL(u);return x.protocol==='https:'||x.protocol==='http:'}catch{return false}}
@@ -351,7 +362,7 @@ async function sendRecitation(i,w,btn){
  btn.disabled=true;
  try{
    status.textContent='⏳ Жазба жүктелуде...';
-   await recitationApi('student_register',{name:data.students[user].name});
+   await registerCurrentStudent(data.students[user].name);
    const signed=await recitationApi('student_sign',{name:data.students[user].name,month:i+1,week:w+1,type,mime:file.type,size:file.size});
    if(!online)throw Error('Онлайн файл қоймасы қосылмаған');
    const {error}=await online.storage.from('ai-book-recitations').uploadToSignedUrl(signed.path,signed.token,file,{contentType:file.type});
