@@ -75,6 +75,15 @@ export default async function handler(req,res){
    const signed=await storage('POST',`object/sign/ai-book-recitations/${rows[0].storage_path}`,{expiresIn:600});
    return reply(res,200,{url:`${base}/storage/v1${signed.signedURL}`});
   }
+  if(action==='teacher_delete_recording'){
+   if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде қайта кіріңіз.'});
+   if(!/^[0-9a-f-]{36}$/.test(String(v.id||'')))return reply(res,400,{error:'Жазба нөмірі қате'});
+   const rows=await db(`ai_recitations?id=eq.${encodeURIComponent(v.id)}&select=id,storage_path`);
+   if(!rows.length)return reply(res,404,{error:'Жазба табылмады'});
+   await db(`ai_recitations?id=eq.${rows[0].id}`,'DELETE');
+   try{await storage('DELETE',`object/ai-book-recitations/${rows[0].storage_path}`)}catch(e){console.error('Orphaned recording cleanup:',e.message)}
+   return reply(res,200,{ok:true});
+  }
   if(action==='teacher_review'){
    if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде қайта кіріңіз.'});
    if(!['approved','retry'].includes(v.status))return reply(res,400,{error:'Шешім қате'});
