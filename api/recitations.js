@@ -42,6 +42,8 @@ export default async function handler(req,res){
    // The random 256-bit browser key is a bearer credential, never the student's name.
    const deviceToken=String(v.deviceToken||'');
    if(!/^[a-f0-9]{64}$/.test(deviceToken))return reply(res,400,{error:'Құрылғы сеансы дұрыс емес. Бетті жаңартыңыз.'});
+   const blocked=await db(`ai_deleted_student_sessions?access_hash=eq.${hashCode(deviceToken)}&select=access_hash`);
+   if(blocked.length)return reply(res,410,{error:'Бұл оқушы мұғалім тарапынан өшірілген. Қайта тіркеу үшін мұғалімге хабарласыңыз.'});
    const match=await db(`ai_students_secure?access_hash=eq.${hashCode(deviceToken)}&select=id,display_name`);
    if(match.length){
     if(match[0].display_name.trim().toLocaleLowerCase('kk')!==name.toLocaleLowerCase('kk'))return reply(res,409,{error:'Бұл құрылғы басқа оқушыға тіркелген.'});
@@ -81,6 +83,9 @@ export default async function handler(req,res){
   if(action==='teacher_remove_student'){
    if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде қайта кіріңіз.'});
    if(!/^[0-9a-f-]{36}$/.test(v.id||''))return reply(res,400,{error:'Оқушы коды қате'});
+   const removed=await db(`ai_students_secure?id=eq.${v.id}&select=access_hash`);
+   if(!removed.length)return reply(res,404,{error:'Оқушы табылмады'});
+   await db('ai_deleted_student_sessions','POST',{access_hash:removed[0].access_hash});
    const files=await db(`ai_recitations?student_id=eq.${v.id}&select=storage_path`);
    for(const f of files)await storage('DELETE',`object/ai-book-recitations/${f.storage_path}`);
    await db(`ai_students_secure?id=eq.${v.id}`,'DELETE');return reply(res,200,{ok:true});
