@@ -460,16 +460,23 @@ function openTeacherFolder(i){activeTeacherFolder=i;setTimeout(()=>renderRecitat
 function showTeacherStudentCodes(){
  const box=$('existingStudentCodes');if(!box)return;
  const students=Object.values(data.students).filter(s=>s.serverId).sort((a,b)=>a.name.localeCompare(b.name,'kk'));
- box.innerHTML=students.map(st=>`<div class="primaryrow" style="margin:7px 0"><span>👤 ${esc(st.name)}</span> <button class="btn small alt" data-issue-code="${esc(st.serverId)}" type="button">🔑 Жеке код беру</button></div>`).join('')||'<p class="muted">Әзірге оқушы жоқ.</p>';
+ box.innerHTML=students.map(st=>`<div class="primaryrow" style="margin:7px 0;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span>👤 ${esc(st.name)}</span><div class="inline" style="gap:8px;flex-wrap:wrap"><button class="btn small alt" data-issue-code="${esc(st.serverId)}" type="button">🔑 Жеке код беру</button><button class="btn small alt" data-remove-code-student="${esc(st.serverId)}" type="button">🗑 Өшіру</button></div></div>`).join('')||'<p class="muted">Әзірге оқушы жоқ.</p>';
  box.querySelectorAll('[data-issue-code]').forEach(btn=>btn.onclick=async()=>{
   if(!confirm('Осы оқушыға жаңа код бересіз бе? Бұрынғы коды жарамсыз болады.'))return;
-  btn.disabled=true;try{const r=await recitationApi('teacher_set_student_code',{id:btn.dataset.issueCode});$('studentCodeMessage').textContent=`${r.name} — жеке код: ${r.code} (оқушыға жеке беріңіз)`}catch(e){alert(e.message)}finally{btn.disabled=false}
+  btn.disabled=true;try{const r=await recitationApi('teacher_set_student_code',{id:btn.dataset.issueCode});$('studentCodeMessage').textContent=`🔑 ${r.name} — ЖАҢА ЖЕКЕ КОДЫ: ${r.code}. Қазір жазып алыңыз, қауіпсіздік үшін кейін қайта көрсетілмейді.`;$('studentCodeMessage').scrollIntoView({behavior:'smooth',block:'center'});alert(`${r.name}\nЖаңа жеке код: ${r.code}\nКодты оқушыға жеке беріңіз. Бұл терезені жапқаннан кейін кодты қайта көру мүмкін емес.`)}catch(e){alert(e.message)}finally{btn.disabled=false}
+ });
+ box.querySelectorAll('[data-remove-code-student]').forEach(btn=>btn.onclick=async()=>{
+  const id=btn.dataset.removeCodeStudent;const st=students.find(x=>x.serverId===id);
+  if(!st||!confirm(`«${st.name}» оқушысын, оның жұлдыздарын және жазбаларын БІРЖОЛА өшіресіз бе? Бұл әрекетті қайтару мүмкін емес.`))return;
+  btn.disabled=true;
+  try{await recitationApi('teacher_remove_student',{id});$('studentCodeMessage').textContent=`«${st.name}» оқушысы өшірілді.`;await syncTeacherProgress();renderTeacher()}
+  catch(e){alert('Оқушыны өшіру мүмкін емес: '+e.message);btn.disabled=false}
  });
 }
 $('createStudentCode').onclick=async()=>{
  const name=$('newStudentForCode').value.trim();if(name.length<3){$('studentCodeMessage').textContent='Оқушының толық аты-жөнін енгізіңіз.';return}
  $('createStudentCode').disabled=true;
- try{const r=await recitationApi('teacher_add_student',{name});$('studentCodeMessage').textContent=`${r.name} — жеке код: ${r.code} (оқушыға жеке беріңіз)`;$('newStudentForCode').value='';await syncTeacherProgress();renderTeacher()}
+ try{const r=await recitationApi('teacher_add_student',{name});$('studentCodeMessage').textContent=`🔑 ${r.name} — ЖАҢА ЖЕКЕ КОДЫ: ${r.code}. Қазір жазып алыңыз.`;alert(`${r.name}\nЖаңа жеке код: ${r.code}\nКодты оқушыға жеке беріңіз.`);$('newStudentForCode').value='';await syncTeacherProgress();renderTeacher()}
  catch(e){$('studentCodeMessage').textContent=e.message}
  finally{$('createStudentCode').disabled=false}
 };
