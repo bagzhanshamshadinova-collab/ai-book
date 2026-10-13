@@ -94,8 +94,15 @@ export default async function handler(req,res){
    if(!removed.length)return reply(res,404,{error:'Оқушы табылмады'});
    await db('ai_deleted_student_sessions','POST',{access_hash:removed[0].access_hash});
    const files=await db(`ai_recitations?student_id=eq.${v.id}&select=storage_path`);
-   for(const f of files)await storage('DELETE',`object/ai-book-recitations/${f.storage_path}`);
-   await db(`ai_students_secure?id=eq.${v.id}`,'DELETE');return reply(res,200,{ok:true});
+   // Remove the account first. Its related DB rows cascade, even if a storage
+   // object is missing or Supabase Storage refuses a DELETE request (400/404).
+   await db(`ai_students_secure?id=eq.${v.id}`,'DELETE');
+   let storageFailed=0;
+   for(const f of files){
+    try{await storage('DELETE',`object/ai-book-recitations/${f.storage_path}`)}
+    catch(err){storageFailed++;console.error('Recording object cleanup failed',err.message)}
+   }
+   return reply(res,200,{ok:true,storage_cleanup_failed:storageFailed});
   }
   if(action==='teacher_get_video'){
    if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде қайта кіріңіз.'});
