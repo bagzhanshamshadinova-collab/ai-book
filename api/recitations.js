@@ -27,45 +27,52 @@ export default async function handler(req,res){
   if(req.method!=='POST')return reply(res,405,{error:'POST ғана қолданылады'});
   if(req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)return reply(res,403,{error:'Сайттан тыс сұранысқа рұқсат жоқ'});
   const v=typeof req.body==='object'&&req.body||{};const action=v.action;
-  if(action==='student_register'){
-   const name=String(v.name||'').trim().replace(/\s+/g,' ');
-   if(!pupilNameValid(name))return reply(res,400,{error:'Толық аты-жөніңізді енгізіңіз.'});
-   const existingId=studentId(req);
-   if(existingId){
-    const existing=await db(`ai_students_secure?id=eq.${existingId}&select=id,display_name`);
-    if(existing.length){
-     if(existing[0].display_name!==name)return reply(res,409,{error:'Бұл браузерде басқа оқушы тіркелген. Мұғалімнен көмек сұраңыз.'});
-     return reply(res,200,{ok:true,name:existing[0].display_name});
-    }
-   }
-   // Restore the same student after a browser cookie has expired or disappeared.
-   // The random 256-bit browser key is a bearer credential, never the student's name.
-   const deviceToken=String(v.deviceToken||'');
-   if(!/^[a-f0-9]{64}$/.test(deviceToken))return reply(res,400,{error:'Құрылғы сеансы дұрыс емес. Бетті жаңартыңыз.'});
-   const blocked=await db(`ai_deleted_student_sessions?access_hash=eq.${hashCode(deviceToken)}&select=access_hash`);
-   if(blocked.length)return reply(res,410,{error:'Бұл оқушы мұғалім тарапынан өшірілген. Қайта тіркеу үшін мұғалімге хабарласыңыз.'});
-   const match=await db(`ai_students_secure?access_hash=eq.${hashCode(deviceToken)}&select=id,display_name`);
-   if(match.length){
-    if(match[0].display_name.trim().toLocaleLowerCase('kk')!==name.toLocaleLowerCase('kk'))return reply(res,409,{error:'Бұл құрылғы басқа оқушыға тіркелген.'});
-    const id=match[0].id,exp=String(Date.now()+30*24*3600*1000);
-    cookie(res,'ai_pupil',`${id}.${exp}.${sig(`${id}.${exp}`)}`,2592000);
-    return reply(res,200,{ok:true,name:match[0].display_name});
-   }
-   // A browser-bound random session: students never have to type or share a code.
-   // Name is self-declared, not verified identity. Do not expose recordings to peers.
-   const inserted=await db('ai_students_secure','POST',{display_name:name,access_hash:hashCode(deviceToken)});
-   const id=inserted[0]?.id;if(!id)throw Error('Оқушы тіркелмеді');
+  if(action==='student_code_login'){
+   const name=String(v.name||'').trim().replace(/\s+/g,' '), code=String(v.code||'');
+   if(!pupilNameValid(name)||!/^\d{5}$/.test(code))return reply(res,400,{error:'Аты-жөніңіз бен 5 сандық кодты енгізіңіз.'});
+   // Short numeric PINs require both IP throttling and account locking.
+   const ip=String(req.headers['x-forwarded-for']||req.socket?.remoteAddress||'unknown').split(',')[0].trim();
+   const clientHash=crypto.createHash('sha256').update(`${secret}:ip:${ip}`).digest('hex');
+   const rows=await db(`ai_student_code_attempts?client_hash=eq.${clientHash}&select=attempts,window_started`);
+   let attempts=rows[0]&&Date.now()-new Date(rows[0].window_started).getTime()<3600000?rows[0].attempts:0;
+   if(attempts>=8)return reply(res,429,{error:'Кіру әрекеті шектелді. Бір сағаттан кейін көріңіз немесе мұғалімге хабарласыңыз.'});
+   const matches=await db(`ai_students_secure?access_hash=eq.${hashCode(code)}&select=id,display_name`);
+   const match=matches.find(x=>x.display_name.trim().toLocaleLowerCase('kk')===name.toLocaleLowerCase('kk'));
+   if(!match){await db('ai_student_code_attempts?on_conflict=client_hash','POST',{client_hash:clientHash,attempts:attempts+1,window_started:attempts?rows[0].window_started:new Date().toISOString()});return reply(res,401,{error:'Аты-жөні немесе жеке код дұрыс емес.'});}
+   await db('ai_student_code_attempts?on_conflict=client_hash','POST',{client_hash:clientHash,attempts:0,window_started:new Date().toISOString()});
    const exp=String(Date.now()+30*24*3600*1000);
-   cookie(res,'ai_pupil',`${id}.${exp}.${sig(`${id}.${exp}`)}`,2592000);
-   return reply(res,200,{ok:true,name});
+   cookie(res,'ai_pupil',`${match.id}.${exp}.${sig(`${match.id}.${exp}`)}`,2592000);
+   return reply(res,200,{ok:true,name:match.display_name});
   }
+  if(action==='teacher_set_student_code'){
+   if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде кіріңіз.'});
+   const id=String(v.id||'');if(!/^[0-9a-f-]{36}$/.test(id))return reply(res,400,{error:'Оқушы ID қате'});
+   const student=await db(`ai_students_secure?id=eq.${id}&select=id,display_name`);
+   if(!student.length)return reply(res,404,{error:'Оқушы табылмады'});
+   for(let n=0;n<20;n++){
+    const code=String(crypto.randomInt(0,100000)).padStart(5,'0');
+    const matches=await db(`ai_students_secure?access_hash=eq.${hashCode(code)}&select=id`);
+    if(matches.length)continue;
+    await db(`ai_students_secure?id=eq.${id}`,'PATCH',{access_hash:hashCode(code)});
+    return reply(res,200,{ok:true,code,name:student[0].display_name});
+   }
+   return reply(res,503,{error:'Код жасау мүмкін болмады. Қайта көріңіз.'});
+  }
+  if(action==='student_register')return reply(res,403,{error:'Мұғалімнен жеке 5 таңбалы код алыңыз.'});
   if(action==='student_logout'){cookie(res,'ai_pupil','',0);return reply(res,200,{ok:true})}
   if(action==='teacher_add_student'){
-   if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде қайта кіріңіз.'});
-   const name=String(v.name||'').trim().replace(/\s+/g,' ');if(!pupilNameValid(name))return reply(res,400,{error:'Оқушының толық аты қажет.'});
-   const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';const code=Array.from(crypto.randomBytes(10),n=>alphabet[n%alphabet.length]).join('');
-   await db('ai_students_secure','POST',{display_name:name,access_hash:hashCode(code)});
-   return reply(res,200,{ok:true,name,code});
+   if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде кіріңіз.'});
+   const name=String(v.name||'').trim().replace(/\s+/g,' ');
+   if(!pupilNameValid(name))return reply(res,400,{error:'Толық аты-жөнін енгізіңіз.'});
+   const same=await db(`ai_students_secure?select=id,display_name`);
+   if(same.some(x=>x.display_name.trim().toLocaleLowerCase('kk')===name.toLocaleLowerCase('kk')))return reply(res,409,{error:'Бұл оқушы тіркелген. Жеке кодты тізімнен беріңіз.'});
+   for(let n=0;n<20;n++){
+    const code=String(crypto.randomInt(0,100000)).padStart(5,'0');
+    if((await db(`ai_students_secure?access_hash=eq.${hashCode(code)}&select=id`)).length)continue;
+    await db('ai_students_secure','POST',{display_name:name,access_hash:hashCode(code)});
+    return reply(res,200,{ok:true,name,code});
+   }
+   return reply(res,503,{error:'Жеке код жасауда қате болды'});
   }
   if(action==='teacher_progress'){
    if(!isTeacher(req))return reply(res,401,{error:'Мұғалім ретінде қайта кіріңіз.'});
