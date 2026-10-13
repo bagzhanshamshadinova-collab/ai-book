@@ -218,16 +218,36 @@ async function syncStudentProgress(){
   return true;
  }finally{studentSyncBusy=false}
 }
+let lastStudentRefresh=0;
+let studentRefreshRunning=false;
+let studentRefreshTimer=null;
 async function refreshStudentStars(){
- if(!user||role!=='student'||!$('studentView')||$('studentView').classList.contains('hidden'))return;
+ if(studentRefreshRunning||!user||role!=='student'||!$('studentView')||$('studentView').classList.contains('hidden'))return;
+ if(Date.now()-lastStudentRefresh<12000)return;
+ if(activeWeekRecording)return;
+ studentRefreshRunning=true;
+ lastStudentRefresh=Date.now();
  try{
+  const student=data.students[user];if(!student)return;
+  const before=JSON.stringify({poems:student.poems,quiz:student.quiz,pending:student.pending});
   await syncStudentProgress();
-  if(monthIndex!==null&&!activeWeekRecording)await openBook(monthIndex,true);
-  else if(monthIndex===null)renderStudent();
- }catch(err){console.warn('Жұлдыздарды жаңарту:',err);}
+  const after=JSON.stringify({poems:student.poems,quiz:student.quiz,pending:student.pending});
+  if(before===after)return;
+  if(monthIndex!==null){
+   // Refresh only star labels instead of reconstructing the whole book form.
+   if($('monthStarsBadge'))$('monthStarsBadge').textContent=monthStars(student,monthIndex)+' / 9 ⭐';
+   const statuses=$('bookDetail')?.querySelectorAll('.week .primaryrow > span:last-child');
+   statuses?.forEach((el,w)=>{const key=`${monthIndex}-${w}`;el.textContent=student.poems[key]?'⭐ Расталды':student.pending[key]?'⏳ Тексерілуде':'☆ 1 жұлдыз'});
+  }else if($('totalStars'))$('totalStars').textContent=stars(student).total+' ⭐';
+ }catch(err){console.warn('Жұлдыздарды жаңарту:',err)}
+ finally{studentRefreshRunning=false}
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshStudentStars()});
-window.addEventListener('focus',()=>{if(!document.hidden)refreshStudentStars()});
+function scheduleStudentStarsRefresh(){
+ if(studentRefreshTimer)clearTimeout(studentRefreshTimer);
+ studentRefreshTimer=setTimeout(()=>{studentRefreshTimer=null;refreshStudentStars()},600);
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleStudentStarsRefresh()});
+window.addEventListener('focus',scheduleStudentStarsRefresh);
 
 async function syncTeacherProgress(){
  try{
